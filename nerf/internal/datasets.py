@@ -5,14 +5,13 @@ import os
 import cv2
 from internal import camera_utils
 from internal import configs
-from internal import image as lib_image
+# from internal import image as lib_image
 from internal import raw_utils
 from internal import utils
 from internal import train_utils
 import matplotlib as mpl
 from collections import defaultdict
 import numpy as np
-import cv2
 from PIL import Image
 import torch
 from tqdm import tqdm
@@ -23,16 +22,13 @@ from scipy.spatial.transform import Slerp
 from mpl_toolkits.mplot3d import axes3d
 import matplotlib.pyplot as plt
 import pickle
-import random
-from nuscenes.nuscenes import NuScenes
 from scipy.spatial.transform import Rotation as R
-from pyquaternion import Quaternion
 import matplotlib.cm as cm
 
 
 sys.path.insert(0, 'internal/pycolmap')
 sys.path.insert(0, 'internal/pycolmap/pycolmap')
-import pycolmap
+# import pycolmap
 
 def inter_two_poses(pose_a, pose_b, alpha):
     ret = np.zeros([3, 4], dtype=np.float64)
@@ -73,104 +69,12 @@ def load_dataset(split, train_dir, config: configs.Config):
     """Loads a split of a dataset using the data_loader specified by `config`."""
     dataset_dict = {
         'waymov2': WaymoV2,
-        'nuscenes': NuScenesNeRF
+        'carlc':Carlc
     }
-
     return dataset_dict[config.dataset_loader](split, train_dir, config)
 
 
-class NeRFSceneManager(pycolmap.SceneManager):
-    """COLMAP pose loader.
 
-  Minor NeRF-specific extension to the third_party Python COLMAP loader:
-  google3/third_party/py/pycolmap/scene_manager.py
-  """
-
-    def process(self):
-        """Applies NeRF-specific postprocessing to the loaded pose data.
-
-    Returns:
-      a tuple [image_names, poses, pixtocam, distortion_params].
-      image_names:  contains the only the basename of the images.
-      poses: [N, 4, 4] array containing the camera to world matrices.
-      pixtocam: [N, 3, 3] array containing the camera to pixel space matrices.
-      distortion_params: mapping of distortion param name to distortion
-        parameters. Cameras share intrinsics. Valid keys are k1, k2, p1 and p2.
-    """
-
-        self.load_cameras()
-        self.load_images()
-        # self.load_points3D()  # For now, we do not need the point cloud data.
-
-        # Assume shared intrinsics between all cameras.
-        cam = self.cameras[1]
-
-        # Extract focal lengths and principal point parameters.
-        fx, fy, cx, cy = cam.fx, cam.fy, cam.cx, cam.cy
-        pixtocam = np.linalg.inv(camera_utils.intrinsic_matrix(fx, fy, cx, cy))
-
-        # Extract extrinsic matrices in world-to-camera format.
-        imdata = self.images
-        w2c_mats = []
-        bottom = np.array([0, 0, 0, 1]).reshape(1, 4)
-        for k in imdata:
-            im = imdata[k]
-            rot = im.R()
-            trans = im.tvec.reshape(3, 1)
-            w2c = np.concatenate([np.concatenate([rot, trans], 1), bottom], axis=0)
-            w2c_mats.append(w2c)
-        w2c_mats = np.stack(w2c_mats, axis=0)
-
-        # Convert extrinsics to camera-to-world.
-        c2w_mats = np.linalg.inv(w2c_mats)
-        poses = c2w_mats[:, :3, :4]
-
-        # Image names from COLMAP. No need for permuting the poses according to
-        # image names anymore.
-        names = [imdata[k].name for k in imdata]
-
-        # Switch from COLMAP (right, down, fwd) to NeRF (right, up, back) frame.
-        poses = poses @ np.diag([1, -1, -1, 1])
-
-        # Get distortion parameters.
-        type_ = cam.camera_type
-
-        if type_ == 0 or type_ == 'SIMPLE_PINHOLE':
-            params = None
-            camtype = camera_utils.ProjectionType.PERSPECTIVE
-
-        elif type_ == 1 or type_ == 'PINHOLE':
-            params = None
-            camtype = camera_utils.ProjectionType.PERSPECTIVE
-
-        if type_ == 2 or type_ == 'SIMPLE_RADIAL':
-            params = {k: 0. for k in ['k1', 'k2', 'k3', 'p1', 'p2']}
-            params['k1'] = cam.k1
-            camtype = camera_utils.ProjectionType.PERSPECTIVE
-
-        elif type_ == 3 or type_ == 'RADIAL':
-            params = {k: 0. for k in ['k1', 'k2', 'k3', 'p1', 'p2']}
-            params['k1'] = cam.k1
-            params['k2'] = cam.k2
-            camtype = camera_utils.ProjectionType.PERSPECTIVE
-
-        elif type_ == 4 or type_ == 'OPENCV':
-            params = {k: 0. for k in ['k1', 'k2', 'k3', 'p1', 'p2']}
-            params['k1'] = cam.k1
-            params['k2'] = cam.k2
-            params['p1'] = cam.p1
-            params['p2'] = cam.p2
-            camtype = camera_utils.ProjectionType.PERSPECTIVE
-
-        elif type_ == 5 or type_ == 'OPENCV_FISHEYE':
-            params = {k: 0. for k in ['k1', 'k2', 'k3', 'k4']}
-            params['k1'] = cam.k1
-            params['k2'] = cam.k2
-            params['k3'] = cam.k3
-            params['k4'] = cam.k4
-            camtype = camera_utils.ProjectionType.FISHEYE
-
-        return names, poses, pixtocam, params, camtype
 
 
 def load_blender_posedata(data_dir, split=None):
@@ -291,7 +195,8 @@ class Dataset(torch.utils.data.Dataset):
         self.config = config
         self.global_rank = config.global_rank
         self.world_size = config.world_size
-        self.split = utils.DataSplit(split)
+        self.mode = split
+        # self.split = utils.DataSplit(split)
         self.data_dir = data_dir
         self.near = config.near
         self.far = config.far
@@ -349,7 +254,7 @@ class Dataset(torch.utils.data.Dataset):
                         self.pixtocam_ndc)
 
         # Seed the queue with one batch to avoid race condition.
-        if self.split == utils.DataSplit.TRAIN and not config.compute_visibility:
+        if self.mode == 'train' and not config.compute_visibility:
             self._next_fn = self._next_train
         else:
             self._next_fn = self._next_test
@@ -359,7 +264,7 @@ class Dataset(torch.utils.data.Dataset):
         return self._n_examples
 
     def __len__(self):
-        if self.split == utils.DataSplit.TRAIN and not self.config.compute_visibility:
+        if self.mode == 'train' and not self.config.compute_visibility:
             return 1000
         else:
             return self._n_examples
@@ -593,291 +498,6 @@ class Dataset(torch.utils.data.Dataset):
         return self._next_fn(item)
 
 
-class NuScenesNeRF(Dataset):
-    
-    def _load_renderings(self, config):
-        if config.factor > 0 and not (config.rawnerf_mode and 
-                                       self.split == utils.DataSplit.TRAIN):
-            image_dir_suffix = f'_{config.factor}'
-            factor = config.factor
-        else:
-            factor = 1
-
-        images_raw = {[], [], [], [], [], []}
-        depths_raw = {[], [], [], [], [], []}
-        poses_raw = {[], [], [], [], [], []}
-        sky_segments_raw = {[], [], [], [], [], []}
-        intrinsics_raw = {[], [], [], [], [], []}
-        
-        self.width = 1600
-        self.height = 900
-        sky_seg_idx = 142
-
-        sensor_type_ori = ['cam_1', 'cam_2', 'cam_3', 'cam_4', 'cam_5', 'cam_6']
-        if config.cam_type == 1:
-            sensor_type = ['CAM_FRONT']
-        elif config.cam_type == 2:
-            sensor_type = ['CAM_LEFT']
-        elif config.cam_type == 3:
-            sensor_type = ['CAM_RIGHT']
-        elif config.cam_type == 6:
-            sensor_type = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT']
-            self.cam_num = 3
-        elif config.cam_type == 7:
-            sensor_type = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
-            self.cam_num = 6
-
-        nusc = NuScenes(version='v1.0-trainval', dataroot='')
-        scene_name = self.data_dir
-        for scene in nusc.scene:
-            if scene['name'] == scene_name:
-                break
-
-        IDX = 0
-        sample_idx_list = {}
-        scene_token = scene['token']
-        temp_sample = nusc.get('sample', scene['first_sample_token'])
-        poses_json_path = config.refine_name
-        with open(poses_json_path) as jp:
-            poses_json = json.load(jp)
-        segment_path = ''
-        depth_root = ''
-        depth_root_path = os.path.join(depth_root, scene_name, 'nerf_depth')
-        virtual_poses = []
-        virtual_intrinsics = []
-        virttual_images = []
-        for s_idx, s in enumerate(sensor_type):
-            temp_data = nusc.get('sample_data', temp_sample['data'][s])
-            for idx in range(120):
-                data_path, _, cam_intrisics = nusc.get_sample_data(temp_data['token'])
-                data_path_last = data_path.split('/')[-1]
-                seg_path = os.path.join(segment_path, s+"_"+data_path_last.split(".")[0] + '.png')
-                depth_path = os.path.join(depth_root_path, s+"_"+data_path_last.split(".")[0]+".npy")
-
-            if not os.path.exists(data_path):
-                temp_data = nusc.get("sample_data", temp_data['next'])
-                print("no data")
-                continue
-
-            if (temp_data['is_key_frame']):
-                sample_idx_list[IDX] = temp_data['token']
-            IDX += 1
-
-            image = np.array(Image.open(data_path), dtype=np.float32)
-            ori_img_shape = image.shape
-            image = cv2.resize(image, (self.width, self.height), interpolation=cv2.INTER_AREA)
-            image = image / 255.
-            images_raw[s_idx].append(image)
-
-            intrinsic = cam_intrisics.astype(np.float32)
-            intrinsic[0, :] *= self.width / ori_img_shape[1]
-            intrinsic[1, :] *= self.height / ori_img_shape[0]
-            intrinsics_raw[s_idx].append(intrinsic.astype(np.float32))
-
-            temp_ego2global = nusc.get('egp_pose', temp_data['ego_pose_token'])
-            ego2global_r = Quaternion(temp_ego2global['rotation']).rotation_matrix
-            ego2global_t = np.array(temp_ego2global['translation'])
-            ego2global_rt = np.eye(4)
-            ego2global_rt[:3, :3] = ego2global_r
-            ego2global_rt[:3, 3] = ego2global_t
-            
-            temp_cam2ego = nusc.get('calibrated_sensor', temp_data['calibrated_sensor_token'])
-
-            # cam2ego_r = Quaternion(temp_cam2ego['rotation']).rotation_matrix
-            # cam2ego_t = np.array(temp_cam2ego['translation'])
-            # cam2ego_rt = np.eye(4)
-            # cam2ego_rt[:3, :3] = cam2ego_r
-            # cam2ego_rt[:3, 3] = cam2ego_t
-            # cam2worlds = ego2global_rt @ cam2ego_rt
-            # poses_raw[s_idx].append(camtoworlds)
-
-            pose_key_2 = data_path.split("/")[-1][:-4]
-            pose_key_1 = sensor_type_ori[s_idx]
-            pose_key = pose_key_1 + "/" + pose_key_2
-            pose_attrs = poses_json[pose_key]
-            quat = [pose_attrs['q_x'], pose_attrs['q_y'], pose_attrs['q_z'], pose_attrs['q_w']]
-            pose_world2cam = np.eye(4)
-            Rot = R.from_quat(np.array(quat)).as_matrix()
-            pose_world2cam[:3, 3] = np.array([pose_attrs['p_x'], pose_attrs['p_y'], pose_attrs['p_z']])
-            pose_world2cam[:3, :3] = Rot
-            pose_cam2world = np.linalg.inv(pose_world2cam)
-            poses_raw[s_idx].append(pose_cam2world)
-
-            #depth
-            depth = np.load(depth_path).asttype(np.float32)
-            mask = depth <= 0.5
-            distance = depth2distance(depth, [intrinsic[0][0], intrinsic[1][1], intrinsic[0][2], intrinsic[1][2]])
-            distance[mask] = 0.
-            if idx < 3:
-                distance = np.zeros_like(distance)
-            depths_raw[s_idx].append(distance)
-
-            #segmentation
-            segment = np.array(Image.open(seg_path))
-            sky_mask = segment == sky_seg_idx
-            segment[sky_mask] = 1
-            segment[~sky_mask] = 0
-            sky_segments_raw[s_idx].append(segment)
-
-            temp_data = nusc.get('sample_data', temp_data['next'])
-
-        images = []
-        depths = []
-        poses = []
-        sky_segments = []
-        intrinsics = []
-        for idx in range(len(poses_raw[0])):
-            for s_idx, s in enumerate(sensor_type):
-                pose_cam2world = poses_raw[s_idx][idx]
-                intrinsic = intrinsics_raw[s_idx][idx]
-
-                images.append(images_raw[s_idx][idx])
-                intrinsics.append(intrinsic)
-                poses.append(pose_cam2world)
-                sky_segments.append(sky_segments_raw[s_idx][idx])
-                depths.append(depths_raw[s_idx][idx])
-
-                if config.virtual_poses:
-                    shift_up = random.random() * 0.5 + 0.25
-                    T = np.array([[1, 0, 0, 0],
-                                [0, 1, 0, shift_up],
-                                [0, 0, 1, 0],
-                                [0, 0, 0, 1]]).astype(np.float32)
-                    pose_up = pose_cam2world @ T
-                    virtual_poses.append(pose_up)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                    shift_down = random.random() * 0.5 + 0.25
-                    T = np.array([[1, 0, 0, 0],
-                                [0, 1, 0, -shift_down],
-                                [0, 0, 1, 0],
-                                [0, 0, 0, 1]]).astype(np.float32)
-                    pose_down = pose_cam2world @ T
-                    virtual_poses.append(pose_down)
-                    virtual_intrinsics.append(intrinsic.copy())                
-
-                    rot_down = random.random() * 20
-                    T_rot = np.array([[1, 0, 0],
-                                    [0, np.cos(np.radians(-rot_down)), -np.sin(np.radians(-rot_down))],
-                                    [0, np.sin(np.radians(-rot_down)), np.cos(np.radians(-rot_down))]]).astype(np.float32)
-                    pose_rot_down = pose_cam2world.copy()
-                    pose_rot_down[:3, :3] = pose_rot_down[:3, :3] @ T_rot
-                    virtual_poses.append(pose_rot_down)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                    rot_right = random.random() * 20 + 10
-                    T_rot = np.array([[np.cos(np.radians(-rot_right)), 0, -np.sin(np.radians(-rot_right))],
-                                    [0, 1, 0],
-                                    [np.sin(np.radians(-rot_right)), 0, np.cos(np.radians(-rot_right))]]).astype(np.float32)
-                    pose_rot_right = pose_cam2world.copy()
-                    pose_rot_right[:3, :3] = pose_rot_right[:3, :3] @ T_rot
-                    virtual_poses.append(pose_rot_right)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                    rot_left = random.random() * 20 + 10
-                    T_rot = np.array([[np.cos(np.radians(rot_left)), 0, -np.sin(np.radians(rot_left))],
-                                    [0, 1, 0],
-                                    [np.sin(np.radians(rot_left)), 0, np.cos(np.radians(rot_left))]]).astype(np.float32)
-                    pose_rot_left = pose_cam2world.copy()
-                    pose_rot_left[:3, :3] = pose_rot_left[:3, :3] @ T_rot
-                    virtual_poses.append(pose_rot_left)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                    shift_right = random.random() * 0.3 + 0.3
-                    T_stereo = np.array([[1, 0, 0, shift_right],
-                                [0, 1, 0, 0],
-                                [0, 0, 1, 0],
-                                [0, 0, 0, 1]]).astype(np.float32)
-                    pose_stereo_right = pose_cam2world @ T_stereo
-                    virtual_poses.append(pose_stereo_right)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                    shift_left = random.random() * 0.3 + 0.3
-                    T_stereo = np.array([[1, 0, 0, -shift_left],
-                                [0, 1, 0, 0],
-                                [0, 0, 1, 0],
-                                [0, 0, 0, 1]]).astype(np.float32)
-                    pose_stereo_left = pose_cam2world @ T_stereo
-                    virtual_poses.append(pose_stereo_left)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                    shift_forward = random.random() * 0.5 + 0.1
-                    T_forward = np.array([[1, 0, 0, 0],
-                                [0, 1, 0, 0],
-                                [0, 0, 1, shift_forward],
-                                [0, 0, 0, 1]]).astype(np.float32)
-                    pose_forward = pose_cam2world @ T_forward
-                    virtual_poses.append(pose_forward)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                    shift_backward = random.random()*0.5 + 0.1
-                    T_backward = np.array([[1, 0, 0, 0],
-                                [0, 1, 0, 0],
-                                [0, 0, 1, -shift_backward],
-                                [0, 0, 0, 1]]).astype(np.float32)
-                    pose_backward = pose_cam2world @ T_backward
-                    virtual_poses.append(pose_backward)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-        poses = np.array(poses)
-        images = np.array(images)
-        depths = np.array(depths)
-        intrinsics = np.array(intrinsics)
-        sky_segments = np.array(sky_segments)
-
-        if config.virtual_poses:
-            virtual_poses = np.array(virtual_poses)
-            virtual_intrinsics = np.array(virtual_intrinsics)
-
-        center = np.mean(poses[:, :3, 3], axis=0)
-        poses[:, :3, 3] -= center[None]
-        scale = 1.0 / np.mean(np.linalg.norm(poses[:, :3, 3], axis=-1), axis=0)
-        poses[:, :3, 3] = poses[:, :3, 3] * scale
-        depths = depths * scale
-
-        if config.virtual_poses:
-            virtual_poses[:, :3, 3] -= center[None]
-            virtual_poses[:, :3, 3] = virtual_poses[:, :3, 3] * scale
-
-        all_indices = np.arange(len(images))
-        train_indices = all_indices % (8 * len(sensor_type)) >= len(sensor_type)
-        split_indices = {
-            utils.DataSplit.TEST: all_indices[all_indices % (8 * len(sensor_type)) < len(sensor_type)],
-            utils.DataSplit.TRAIN: train_indices
-        }
-        indices = split_indices[self.split]
-        virtual_indices = np.arange(len(images)*9) % (8 * len(sensor_type) * 9) >= len(sensor_type) * 9
-
-        self.images = images[indices]
-        self.n_examples = len(self.images)
-
-        intrinsics = intrinsics[indices]
-        self.pixtocams = np.array([np.linalg.inv(intrinsic) for intrinsic in intrinsics])
-
-        poses = poses @ np.diag([1., -1., -1., 1.]).astype(np.float32)
-        if config.virtual_poses:
-            virtual_intrinsics = virtual_intrinsics[virtual_indices]
-            pixtocams_vir = np.array([np.linalg.inv(virtual_intrinsic) for virtual_intrinsic in virtual_intrinsics])
-            virtual_poses = virtual_poses @ np.diag([1., -1., -1., 1.]).astype(np.float32)
-
-        self.disp_images = depths[indices]
-        self.camtoworlds = poses[indices]
-        self.sky_segments = sky_segments[indices]
-
-        if self.split == utils.DataSplit.TRAIN and config.virtual_poses:
-            self.camtoworlds = np.concatenate((self.camtoworlds, virtual_poses[virtual_indices]), axis=0)
-            self.pixtocams = np.concatenate((self.pixtocams, pixtocams_vir), axis=0)
-            self.virtual_poses = virtual_poses[virtual_indices]
-
-        if config.render_path:
-            self.width = 8000
-            self.height = 900
-            poses = poses[::len(sensor_type)]
-            self.focal = intrinsics[0][0, 0]
-            self.camtoworlds = poses
-            self.camtype = 'panoroma'
-
-
 class WaymoV2(Dataset):
     
     def _load_renderings(self, config):
@@ -943,12 +563,18 @@ class WaymoV2(Dataset):
 
         virtual_poses = []
         virtual_intrinsics = []
-        video_lens = 80
+        if self.mode == 'train':
+            video_lens = 150
+        else:
+            video_lens = 30
         for idx in range(video_lens):
             for cam_idx, cam in enumerate(sensor_type):
-                rgb_path = os.path.join(images_root, cam, str(idx).zfill(8)+'.jpg')
-                depth_path = os.path.join(depth_root, str(idx).zfill(8)+cam+'.npy')
-                segment_path = os.path.join(sky_segments_root, cam, str(idx).zfill(8)+'.npz')
+
+                if self.mode =='train':
+                    rgb_path = os.path.join(images_root, 'train_'+cam+'_', str(idx).zfill(8)+'.png')
+                else:
+                    rgb_path = os.path.join(images_root, 'offset_left_4m','eval_'+cam+'_', str(idx).zfill(8)+'png')
+
                 pose_cam2world = poses_per_camera[cam_idx][0][idx]
                 intrinsic = intrinsics_per_camera[cam_idx][0][idx]
 
@@ -979,113 +605,10 @@ class WaymoV2(Dataset):
                     pose_world2cam[:3, :3] = Rot
                     pose_cam2world = np.linalg.inv(pose_world2cam)
                     poses.append(pose_cam2world)
-
-                if config.virtual_poses:
-                    shift_up = random.random() * 0.5 + 0.25
-                    T = np.array([[1, 0, 0, 0],
-                                [0, 1, 0, shift_up],
-                                [0, 0, 1, 0],
-                                [0, 0, 0, 1]]).astype(np.float32)
-                    pose_up = pose_cam2world @ T
-                    virtual_poses.append(pose_up)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                    shift_down = random.random() * 0.5 + 0.25
-                    T = np.array([[1, 0, 0, 0],
-                                [0, 1, 0, -shift_down],
-                                [0, 0, 1, 0],
-                                [0, 0, 0, 1]]).astype(np.float32)
-                    pose_down = pose_cam2world @ T
-                    virtual_poses.append(pose_down)
-                    virtual_intrinsics.append(intrinsic.copy())                
-
-                    rot_down = random.random() * 20
-                    T_rot = np.array([[1, 0, 0],
-                                    [0, np.cos(np.radians(-rot_down)), -np.sin(np.radians(-rot_down))],
-                                    [0, np.sin(np.radians(-rot_down)), np.cos(np.radians(-rot_down))]]).astype(np.float32)
-                    pose_rot_down = pose_cam2world.copy()
-                    pose_rot_down[:3, :3] = pose_rot_down[:3, :3] @ T_rot
-                    virtual_poses.append(pose_rot_down)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                    rot_right = random.random() * 20 + 10
-                    T_rot = np.array([[np.cos(np.radians(-rot_right)), 0, -np.sin(np.radians(-rot_right))],
-                                    [0, 1, 0],
-                                    [np.sin(np.radians(-rot_right)), 0, np.cos(np.radians(-rot_right))]]).astype(np.float32)
-                    pose_rot_right = pose_cam2world.copy()
-                    pose_rot_right[:3, :3] = pose_rot_right[:3, :3] @ T_rot
-                    virtual_poses.append(pose_rot_right)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                    rot_left = random.random() * 20 + 10
-                    T_rot = np.array([[np.cos(np.radians(rot_left)), 0, -np.sin(np.radians(rot_left))],
-                                    [0, 1, 0],
-                                    [np.sin(np.radians(rot_left)), 0, np.cos(np.radians(rot_left))]]).astype(np.float32)
-                    pose_rot_left = pose_cam2world.copy()
-                    pose_rot_left[:3, :3] = pose_rot_left[:3, :3] @ T_rot
-                    virtual_poses.append(pose_rot_left)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                    shift_right = random.random() * 0.3 + 0.3
-                    T_stereo = np.array([[1, 0, 0, shift_right],
-                                [0, 1, 0, 0],
-                                [0, 0, 1, 0],
-                                [0, 0, 0, 1]]).astype(np.float32)
-                    pose_stereo_right = pose_cam2world @ T_stereo
-                    virtual_poses.append(pose_stereo_right)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                    shift_left = random.random() * 0.3 + 0.3
-                    T_stereo = np.array([[1, 0, 0, -shift_left],
-                                [0, 1, 0, 0],
-                                [0, 0, 1, 0],
-                                [0, 0, 0, 1]]).astype(np.float32)
-                    pose_stereo_left = pose_cam2world @ T_stereo
-                    virtual_poses.append(pose_stereo_left)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                    shift_forward = random.random() * 0.5 + 0.1
-                    T_forward = np.array([[1, 0, 0, 0],
-                                [0, 1, 0, 0],
-                                [0, 0, 1, shift_forward],
-                                [0, 0, 0, 1]]).astype(np.float32)
-                    pose_forward = pose_cam2world @ T_forward
-                    virtual_poses.append(pose_forward)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                    shift_backward = random.random()*0.5 + 0.1
-                    T_backward = np.array([[1, 0, 0, 0],
-                                [0, 1, 0, 0],
-                                [0, 0, 1, -shift_backward],
-                                [0, 0, 0, 1]]).astype(np.float32)
-                    pose_backward = pose_cam2world @ T_backward
-                    virtual_poses.append(pose_backward)
-                    virtual_intrinsics.append(intrinsic.copy())
-
-                #depth
-                depth = np.load(depth_path).astype(np.float32).squeeze()
-                #depth = np.array(Image.open(depth_path), dtype=np.float32)
-                #depth = cv2.resize(depth, (self.width, self.height), interpolation=cv2.INTER_NEAREST)
-                mask = depth <= 0.5
-                depth[mask] = 0.
-                # if idx < 3:
-                #     depth = np.zeros_like(depth)
-                depths.append(depth)
-
-                #segmentation
-                #segment = np.array(Image.open(segment_path))
-                segment = np.load(segment_path)['arr_0'].astype(np.float32).squeeze()
-                sky_mask = segment == sky_seg_idx
-                segment[sky_mask] = 1
-                segment[~sky_mask] = 0
-                
-                sky_segments.append(segment)
-
         poses = np.array(poses)
         images = np.array(images)
-        depths = np.array(depths)
         intrinsics = np.array(intrinsics)
-        sky_segments = np.array(sky_segments)
+  
 
         if config.virtual_poses:
             virtual_poses = np.array(virtual_poses)
@@ -1138,6 +661,280 @@ class WaymoV2(Dataset):
             self.focal = intrinsics[0][0, 0]
             self.camtoworlds = poses
             #self.camtype = 'panoroma'
+
+
+class Carlc(Dataset):
+    
+    def _load_renderings(self, config):
+        if config.factor >= 0 and not (config.rawnerf_mode and 
+                                       self.split == utils.DataSplit.TRAIN):
+            image_dir_suffix = f'_{config.factor}'
+            factor = config.factor
+        else:
+            factor = 1
+
+        images = []
+        depths = []
+        poses = []
+        sky_segments = []
+        intrinsics = []
+        self.width = 1920
+        self.height = 1280
+        sky_seg_idx = 10
+
+        if config.cam_type == 1:
+            sensor_type = ['camera0']
+        elif config.cam_type == 2:
+            sensor_type = ['camera1']
+        elif config.cam_type == 3:
+            sensor_type = ['camera2']
+        elif config.cam_type == 6:
+            sensor_type = ['camera0', 'camera1', 'camera2']
+            self.cam_num = 3
+        elif config.cam_type == 7:
+            sensor_type = ['camera0', 'camera1', 'camera2', 'camera3', 'camera4']
+            self.cam_num = 5
+
+        poses_per_camera = [[] for step in range(5)]
+        intrinsics_per_camera = [[] for step in range(5)]
+        cam_idx_dict = {'camera0':0, 'camera1':1, 'camera2':2, 'camera3':3, 'camera4': 4}
+
+        images_root = os.path.join(self.data_dir)
+        if self.mode == 'train':
+            images_root = os.path.join(self.data_dir,'train_pic')
+            pose_ego = self.load_blender_json(images_root)
+        else:
+            images_root_train = os.path.join(self.data_dir,'train_pic')
+            images_root = os.path.join(self.data_dir,'test_pic')
+            pose_ego_train = self.load_blender_json(images_root_train)
+        # self.load_json = os.path.join(self.data_dir , "transforms_ucnerf.json")
+            pose_ego = self.load_blender_json(images_root,'test')
+        c2w_train_list = []
+        if self.mode == 'test' and config.cam_type != 1:
+            sensor_type = ['camera0']
+        for idx,oid in enumerate(sensor_type):
+            extrinsic_root = os.path.join(self.data_dir,'extrinsics',str(idx)+'.txt')
+            intrinsic_root = os.path.join(self.data_dir,'intrinsics',str(idx)+'.txt')
+            extrinsics = np.loadtxt(extrinsic_root)
+            extrinsics_tensor = torch.tensor(extrinsics)
+            intrinsic = np.loadtxt(intrinsic_root)
+            fx, fy, cx, cy = intrinsic[0], intrinsic[1], intrinsic[2], intrinsic[3]
+            intrinsic = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+            intrinsics_tensor = torch.tensor(intrinsic)
+            intr = intrinsics_tensor
+            c2w = pose_ego@extrinsics_tensor
+            c2w = c2w.numpy()
+            for i in range(c2w.shape[0]):
+                c2w[i] = self.pose_unreal2opencv(c2w[i])
+            c2w = torch.tensor(c2w)
+            if self.mode == 'test':
+                c2w_train = pose_ego_train@extrinsics_tensor
+                c2w_train = c2w_train.numpy()
+                for i in range(c2w_train.shape[0]):
+                    c2w_train[i] = self.pose_unreal2opencv(c2w_train[i])
+                c2w_train_list.append(c2w_train)
+
+
+
+            intrinsics_per_camera[cam_idx_dict[oid]].append(intr)
+            poses_per_camera[cam_idx_dict[oid]].append(c2w)
+
+        # temp_dir = os.path.join(self.data_dir, 'cam_1')
+        # pickle_idxes = sorted(os.listdir(temp_dir))
+        # pickle_idxes = pickle_idxes[:80]
+        # prefix_path = 'Waymo'
+        # segment_path = ''
+        # depth_root = ''
+        # scene = self.data_dir.split("/")[-2]
+        # segment_root_path = os.path.join(segment_path, scene)
+        # depth_root_path = os.path.join(depth_root, scene, 'nerf_depth')
+
+        virtual_poses = []
+        virtual_intrinsics = []
+        if self.mode == 'train':
+            video_lens = 150
+        else:
+            video_lens = 30
+        for idx in range(video_lens):
+            for cam_idx, cam in enumerate(sensor_type):
+                if self.mode == 'train':
+                    rgb_path = os.path.join(images_root, 'train_'+cam +'_'+str(idx).zfill(5)+'.png')
+                    # sky_segments_root = os.path.join(images_root,'masks')
+                    # segment_path = os.path.join(sky_segments_root,'train_'+cam +'_'+str(idx).zfill(5)+'.npz')
+                else:
+                    rgb_path = os.path.join(images_root,'offset_left_4m','eval_'+'camera0' +'_'+str(idx).zfill(5)+'.png')
+                    # sky_segments_root = os.path.join(images_root,'masks')
+                    # segment_path = os.path.join(images_root,'offset_left_1m','masks','eval_'+'camera0' +'_'+str(idx).zfill(5)+'.npz')
+                pose_cam2world = poses_per_camera[cam_idx][0][idx]
+                intrinsic = intrinsics_per_camera[cam_idx][0]
+
+                image = np.array(Image.open(rgb_path))
+                ori_image_shape = image.shape
+                image = cv2.resize(image, (self.width, self.height), interpolation=cv2.INTER_AREA)
+                image = image / 255.
+                images.append(image)
+
+                intrinsic[0, :] *= self.width / ori_image_shape[1]
+                intrinsic[1, :] *= self.height / ori_image_shape[0]
+                intrinsics.append(intrinsic)
+                poses.append(pose_cam2world)
+
+
+                #segmentation
+                #segment = np.array(Image.open(segment_path))
+                # segment = np.load(segment_path)['arr_0'].astype(np.float32).squeeze()
+                # sky_mask = segment == sky_seg_idx
+                # segment[sky_mask] = 1
+                # segment[~sky_mask] = 0
+                
+                # sky_segments.append(segment)
+                
+        poses = np.array(poses)
+        images = np.array(images)
+        intrinsics = np.array(intrinsics)
+        # sky_segments = np.array(sky_segments)
+        if config.virtual_poses:
+            virtual_poses = np.array(virtual_poses)
+            virtual_intrinsics = np.array(virtual_intrinsics)
+        if self.mode == 'train':
+            center = np.mean(poses[:, :3, 3], axis=0)
+            poses[:, :3, 3] -= center[None]
+            scale = 1.0 / np.mean(np.linalg.norm(poses[:, :3, 3], axis=-1), axis=0)
+            poses[:, :3, 3] = poses[:, :3, 3] * scale
+        else:
+            center = np.mean(np.concatenate(c2w_train_list,axis=0)[:, :3, 3],axis=0)
+            poses[:, :3, 3] -= center[None]
+            poses_train_trans = np.concatenate(c2w_train_list,axis=0)[:, :3, 3] - center
+            scale = 1.0 / np.mean(np.linalg.norm(poses_train_trans, axis=-1), axis=0)
+            poses[:, :3, 3] = poses[:, :3, 3] * scale
+
+        if config.virtual_poses:
+            virtual_poses[:, :3, 3] -= center[None]
+            virtual_poses[:, :3, 3] = virtual_poses[:, :3, 3] * scale
+
+        all_indices = np.arange(len(images))
+
+        virtual_indices = np.arange(len(images)*9) % (8 * len(sensor_type) * 9) >= len(sensor_type) * 9
+
+        self.images = images
+        self.n_examples = len(self.images)
+        
+
+        self.pixtocams = np.array([np.linalg.inv(intrinsic) for intrinsic in intrinsics])
+
+        poses = poses @ np.diag([1., -1., -1., 1.]).astype(np.float32)
+        if config.virtual_poses:
+            virtual_intrinsics = virtual_intrinsics[virtual_indices]
+            pixtocams_vir = np.array([np.linalg.inv(virtual_intrinsic) for virtual_intrinsic in virtual_intrinsics])
+            virtual_poses = virtual_poses @ np.diag([1., -1., -1., 1.]).astype(np.float32)
+
+  
+        self.camtoworlds = poses
+
+        # self.sky_segments = sky_segments
+        if self.mode == 'train' and config.virtual_poses:
+            self.camtoworlds = np.concatenate((self.camtoworlds, virtual_poses[virtual_indices]), axis=0)
+            self.pixtocams = np.concatenate((self.pixtocams, pixtocams_vir), axis=0)
+            self.virtual_poses = virtual_poses[virtual_indices]
+
+        if config.render_path:
+            self.width = 5760
+            self.height = 1000
+            poses = poses[::len(sensor_type)]
+            self.focal = intrinsics[0][0, 0]
+            self.camtoworlds = poses
+            #self.camtype = 'panoroma'
+    def pose_unreal2opencv(self,c2w_mat):
+
+        translation = c2w_mat[:3, 3]
+        rot = R.from_matrix(c2w_mat[:3, :3])
+        rot_vec = rot.as_rotvec()
+
+        rot_vec_new = rot_vec[[1, 2, 0]]
+        rot_vec_new[0] *= -1
+        rot_vec_new[2] *= -1
+
+        rot = R.from_rotvec(rot_vec_new)
+
+        
+        translation_new = translation[[1, 2, 0]]
+        translation_new[1] *= -1
+
+        c2w_mat = np.eye(4)
+        c2w_mat[:3, :3] = rot.as_matrix()
+        c2w_mat[:3, 3] = translation_new
+
+        return c2w_mat
+    def load_blender_json(self,root_path,  mode="train"):
+
+        pose_list = []
+        if mode == 'train':
+            video_len = 150
+        else:
+            video_len = 30
+        for idx in range(video_len):
+            if mode == 'train':
+                json_path = os.path.join(root_path, 'train_camera_extrinsics_'+str(idx).zfill(6)+'.json')
+            else:
+                json_path = os.path.join(root_path,'offset_left_4m','eval_camera_extrinsics_'+str(idx).zfill(6)+'.json')
+            with open(json_path,'r') as f:
+                json_file = json.load(f)
+            data = json_file
+            # img_path = os.path.join(root_path, data["file_path"] + ".png")
+            pose = np.array(data['transform_matrix'])
+            pose = torch.tensor(pose)
+            # pose = self.blender_pose_transform(pose) # [3, 4]
+            pose_list += [pose]
+            # path_list += [img_path]
+        pose_list = torch.stack(pose_list, 0)
+       
+
+        return pose_list
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
     from internal import configs

@@ -1,6 +1,6 @@
 from internal import stepfun
 import numpy as np
-from matplotlib import cm
+import matplotlib as cm
 
 
 def weighted_percentile(x, w, ps, assume_sorted=False):
@@ -171,7 +171,7 @@ def visualize_suite(rendering, batch):
     coords = batch['origins'] + batch['directions'] * distance_mean[:, :, None]
 
     vis_depth_mean, vis_depth_median = [
-        visualize_cmap(x, acc, cm.get_cmap('turbo'), curve_fn=depth_curve_fn)
+        visualize_cmap(x, acc, cm.colormaps.get_cmap('turbo'), curve_fn=depth_curve_fn)
         for x in [distance_mean, distance_median]
     ]
 
@@ -213,7 +213,7 @@ def visualize_suite(rendering, batch):
         visualize_cmap(
             sqrt_ray_weights,
             np.ones_like(sqrt_ray_weights),
-            cm.get_cmap('gray'),
+            cm.colormaps.get_cmap('gray'),
             lo=0,
             hi=1,
             matte_background=False,

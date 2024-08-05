@@ -1,4 +1,3 @@
-import glob
 import logging
 import os
 import shutil
@@ -343,7 +342,7 @@ def main(unused_argv):
 
                     metric_start_time = time.time()
                     metric = metric_harness(
-                        postprocess_fn(rendering['rgb']), postprocess_fn(test_batch['rgb']))
+                        postprocess_fn(rendering['rgb']), postprocess_fn(test_batch['rgb'][:,:,:3]))
                     logger.info(f'Eval {step}: {eval_time:0.3f}s, {rays_per_sec:0.0f} rays/sec')
                     logger.info(f'Metrics computed in {(time.time() - metric_start_time):0.3f}s')
                     for name, val in metric.items():

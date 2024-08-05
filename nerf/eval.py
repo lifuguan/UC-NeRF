@@ -106,7 +106,7 @@ def main(unused_argv):
 
     last_step = 0
     out_dir = os.path.join(config.exp_path,
-                           'path_renders' if config.render_path else 'test_preds')
+                           'path_renders' if config.render_path else 'test_preds_offset4')
     path_fn = lambda x: os.path.join(out_dir, x)
 
     if not config.eval_only_once:
@@ -147,12 +147,12 @@ def main(unused_argv):
             logger.info(f'Rendered in {render_times[-1]:0.3f}s')
 
             cc_start_time = time.time()
-            rendering['rgb_cc'] = cc_fun(rendering['rgb'], batch['rgb'])
+            rendering['rgb_cc'] = cc_fun(rendering['rgb'], batch['rgb'][:,:,:3])
 
             rendering = tree_map(lambda x: x.detach().cpu().numpy() if x is not None else None, rendering)
             batch = tree_map(lambda x: x.detach().cpu().numpy() if x is not None else None, batch)
 
-            gt_rgb = batch['rgb']
+            gt_rgb = batch['rgb'][:,:,:3]
             logger.info(f'Color corrected in {(time.time() - cc_start_time):0.3f}s')
 
             if not config.eval_only_once and idx in showcase_indices:
@@ -208,7 +208,8 @@ def main(unused_argv):
                                       path_fn(f'color_{idx:03d}.png'))
                     utils.save_img_u8(postprocess_fn(rendering['rgb_cc']),
                                       path_fn(f'color_cc_{idx:03d}.png'))
-
+                    utils.save_img_u8(postprocess_fn(batch['rgb'][:,:,:3]),
+                                      path_fn(f'color_gt{idx:03d}.png'))
                     for key in ['distance_mean', 'distance_median']:
                         if key in rendering:
                             utils.save_img_f32(rendering[key],

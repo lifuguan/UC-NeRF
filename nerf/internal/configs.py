@@ -24,9 +24,9 @@ for module, configurables in configurables.items():
 class Config:
     """Configuration flags for everything."""
     seed = 0
-    dataset_loader: str = 'llff'  # The type of dataset loader to use.
+    dataset_loader: str ='carlc'  # The type of dataset loader to use.
     batching: str = 'all_images'  # Batch composition, [single_image, all_images].
-    batch_size: int = 2 ** 16  # The number of rays/pixels in each batch.
+    batch_size: int = 15000  # The number of rays/pixels in each batch.
     patch_size: int = 1  # Resolution of patches sampled for training batches.
     factor: int = 4  # The downsample factor of images, 0 for no downsampling.
     multiscale: bool = False  # use multiscale data for training.
@@ -43,23 +43,21 @@ class Config:
     compute_disp_metrics: bool = False  # If True, load and compute disparity MSE.
     compute_normal_metrics: bool = False  # If True, load and compute normal MAE.
     disable_multiscale_loss: bool = False  # If True, disable multiscale loss.
-    load_sky_segments: bool = True
+    load_sky_segments: bool = False
     randomized: bool = True  # Use randomized stratified sampling.
     refine_pose: bool = False
     near: float = 2.  # Near plane distance.
     far: float = 6.  # Far plane distance.
-    exp_name: str = "test"  # experiment name
-    data_dir: Optional[str] = "/SSD_DISK/datasets/360_v2/bicycle"  # Input data directory.
-    depth_dir: Optional[str] = "" #depth data directory
+    exp_name: str = "./checkpoints/carla_0603_town1_cam3"  # experiment name
+    data_dir: Optional[str] = "data/carla_pic_0603_Town01"  # Input data directory.
     vocab_tree_path: Optional[str] = None  # Path to vocab tree for COLMAP.
-    render_chunk_size: int = 65536  # Chunk size for whole-image renderings.
+    render_chunk_size: int = 15000  # Chunk size for whole-image renderings.
     num_showcase_images: int = 5  # The number of test-set images to showcase.
     deterministic_showcase: bool = True  # If True, showcase the same images.
     vis_num_rays: int = 16  # The number of rays to visualize.
     # Decimate images for tensorboard (ie, x[::d, ::d]) to conserve memory usage.
     vis_decimate: int = 0
     training_views: int = 210
-    refine_name: str = ""
 
     # Only used by train.py:
     max_steps: int = 25000  # The number of optimization steps.
@@ -90,7 +88,7 @@ class Config:
     idt_weight: float = 0.002
     brightness_correction: bool = False
     brightness_reg: bool = False
-    cam_type: int = 6
+    cam_type: int = 1
 
     lr_init: float = 0.01  # The initial learning rate.
     lr_final: float = 0.001  # The final learning rate.
@@ -98,7 +96,7 @@ class Config:
     lr_delay_mult: float = 1e-8  # How much sever the "warmup" should be.
     adam_beta1: float = 0.9  # Adam's beta2 hyperparameter.
     adam_beta2: float = 0.99  # Adam's beta2 hyperparameter.
-    adam_eps: float = 1e-15  # Adam's epsilon hyperparameter.
+    adam_eps: float = 1e-8  # Adam's epsilon hyperparameter.
     grad_max_norm: float = 0.  # Gradient clipping magnitude, disabled if == 0.
     grad_max_val: float = 0.  # Gradient clipping value, disabled if == 0.
     distortion_loss_mult: float = 0.005  # Multiplier on the distortion loss.

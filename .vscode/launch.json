@@ -1,0 +1,58 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "env": {"CUDA_VISIBLE_DEVICES": "7",},
+            "name": "Train",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/nerf/train.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["--gin_configs","configs/waymo.gin" ,
+            // "--gin_bindings" ,"Config.data_dir = 'data/carla_0602'" ,
+            // "--gin_bindings","Config.exp_name = './checkpoints/carla_0602'" ,
+            // "--gin_bindings","Config.factor = 4" ,
+            // "--gin_bindings","Config.max_steps = 30000" ,
+            // "--gin_bindings","Config.cam_type = 6" ,
+            // "--gin_bindings","Config.brightness_correction = True" ,
+            // "--gin_bindings","Config.model_sky = True" ,
+            // "--gin_bindings","Config.virtual_poses = False" ,
+        ]
+        },
+        {
+            "env": {"CUDA_VISIBLE_DEVICES": "1",},
+            "name": "eval",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/nerf/eval.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["--gin_configs","configs/waymo.gin" ,
+            // "--gin_bindings" ,"Config.data_dir = 'data/carla_0602'" ,
+            // "--gin_bindings","Config.exp_name = './checkpoints/carla_0602'" ,
+            // "--gin_bindings","Config.factor = 4" ,
+            // "--gin_bindings","Config.max_steps = 30000" ,
+            // "--gin_bindings","Config.cam_type = 6" ,
+            // "--gin_bindings","Config.brightness_correction = True" ,
+            // "--gin_bindings","Config.model_sky = True" ,
+            // "--gin_bindings","Config.virtual_poses = False" ,
+        ]
+        },
+        {
+            "env": {"CUDA_VISIBLE_DEVICES": "1",},
+            "name": "video",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/nerf/video.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+        ]
+        },
+    ]
+
+}

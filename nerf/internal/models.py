@@ -30,9 +30,9 @@ def set_kwargs(self, kwargs):
 @gin.configurable
 class Model(nn.Module):
     """A mip-Nerf360 model containing all MLPs."""
-    num_prop_samples: int = 64  # The number of samples for each proposal level.
+    num_prop_samples: int = 128  # The number of samples for each proposal level.
     num_nerf_samples: int = 32  # The number of samples the final nerf level.
-    num_levels: int = 3  # The number of sampling levels (3==2 proposals, 1 nerf).
+    num_levels: int = 2  # The number of sampling levels (3==2 proposals, 1 nerf).
     bg_intensity_range = (1., 1.)  # The range of background colors.
     anneal_slope: float = 10  # Higher = more rapid annealing.
     stop_level_grad: bool = True  # If True, don't backprop across levels.
